@@ -77,6 +77,32 @@ def fetch_captions(url: str) -> dict:
     }
 
 
+def ensure_audio_downloaded(url: str, cache: Path) -> Path:
+    """Download audio-only to cache/audio.m4a unless it already exists.
+
+    Used by the Whisper fallback path. Audio downloads use a different yt-dlp endpoint
+    than caption downloads, so this often succeeds even when captions are 429ed.
+
+    Raises RuntimeError if yt-dlp returns non-zero or the file isn't produced.
+    """
+    audio_path = cache / "audio.m4a"
+    if audio_path.exists():
+        return audio_path
+    cache.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        sys.executable, "-m", "yt_dlp",
+        "--no-playlist",
+        "--extract-audio",
+        "--audio-format", "m4a",
+        "--output", str(audio_path),
+        url,
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0 or not audio_path.exists():
+        raise RuntimeError(f"audio download failed: {proc.stderr.strip()}")
+    return audio_path
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print("usage: fetch_captions.py <youtube-url>", file=sys.stderr)

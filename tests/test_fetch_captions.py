@@ -132,3 +132,49 @@ def test_meta_json_carries_schema_version_2(tmp_path, monkeypatch):
 
     meta = json.loads(Path(result["meta_path"]).read_text())
     assert meta["schema_version"] == 2
+
+
+from scripts.fetch_captions import ensure_audio_downloaded
+
+
+def test_ensure_audio_downloaded_skips_if_exists(tmp_path):
+    cache = tmp_path / "id"
+    cache.mkdir()
+    audio = cache / "audio.m4a"
+    audio.write_bytes(b"existing")
+    with patch("scripts.fetch_captions.subprocess.run") as mock_run:
+        result = ensure_audio_downloaded("https://youtu.be/abc", cache)
+    assert result == audio
+    mock_run.assert_not_called()
+
+
+def test_ensure_audio_downloaded_calls_yt_dlp_with_audio_format(tmp_path):
+    cache = tmp_path / "id"
+    cache.mkdir()
+
+    def fake_run(*args, **kwargs):
+        (cache / "audio.m4a").write_bytes(b"downloaded")
+        return subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+
+    with patch("scripts.fetch_captions.subprocess.run", side_effect=fake_run) as mock_run:
+        result = ensure_audio_downloaded("https://youtu.be/abc", cache)
+
+    args = mock_run.call_args[0][0]
+    assert "yt_dlp" in args
+    assert "--no-playlist" in args
+    assert "https://youtu.be/abc" in args
+    audio_flags = ["--extract-audio", "--audio-format", "m4a"]
+    for flag in audio_flags:
+        assert flag in args, f"missing {flag} in {args}"
+    assert result == cache / "audio.m4a"
+
+
+def test_ensure_audio_downloaded_yt_dlp_fail_raises(tmp_path):
+    cache = tmp_path / "id"
+    cache.mkdir()
+    with patch("scripts.fetch_captions.subprocess.run") as mock_run:
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="", stderr="ERROR: video private"
+        )
+        with pytest.raises(RuntimeError, match="audio download failed"):
+            ensure_audio_downloaded("https://youtu.be/abc", cache)
