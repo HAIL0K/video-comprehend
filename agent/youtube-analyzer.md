@@ -23,8 +23,8 @@ Execute these steps in order. Stop and return on the first hard failure.
 
 - Parse the video ID from the URL yourself using the same patterns the script uses (`watch?v=`, `youtu.be/`, `embed/`, `shorts/`) — 11-char ID after the marker.
 - Determine the cache dir: `~/.cache/yt-comprehend/<video-id>/` (Windows: `$env:USERPROFILE/.cache/yt-comprehend/<video-id>/`).
-- If `<cache>/report.md` exists, `<cache>/meta.json` exists, `meta.json.schema_version == 1`, and `force` is not set: output the report path + first paragraph as the one-line summary, and stop.
-- If `report.md` exists but `meta.json.schema_version` is missing or != 1: skip step 2 (captions are schema-independent), but regenerate the report from step 3 onward, reusing cached frames if present.
+- If `<cache>/report.md` exists, `<cache>/meta.json` exists, `meta.json.schema_version` is `1` or `2`, and `force` is not set: output the report path + first paragraph as the one-line summary, and stop.
+- If `report.md` exists but `meta.json.schema_version` is missing or > 2: skip step 2 (captions are schema-independent), but regenerate the report from step 3 onward, reusing cached frames if present.
 
 ### 2. Fetch captions + metadata
 
@@ -93,6 +93,8 @@ Write 3–5 explicit triangulation questions for the research skill. They should
 
 ### 11. Assemble the report
 
+**Transcript source disclosure.** Read `transcript_source` from `meta.json`. If it is `"whisper"`, add this line to the bottom of the **TL;DR** section (or to a new **Open caveats** subsection just below TL;DR if one is warranted): *"Transcript was generated via Whisper ASR. Auto-transcription accuracy is lower than human captions; expect occasional misheard ticker symbols and numerical levels. Verify load-bearing claims against the audio."* Set the `transcript_source` field in the frontmatter accordingly.
+
 Write to the resolved output path. Use exactly this structure:
 
 ```markdown
@@ -105,8 +107,9 @@ uploaded: "<YYYY-MM-DD>"
 url: <url>
 generated: "<ISO 8601 UTC now>"
 keyframe_count: <int>
-schema_version: 1
+schema_version: 2
 truncated: <bool>
+transcript_source: <captions|whisper>
 focus_prompt: "<the prompt from step 3>"
 ---
 
