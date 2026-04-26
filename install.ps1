@@ -10,17 +10,29 @@ Write-Host '== yt-comprehend installer ==' -ForegroundColor Cyan
 
 # 1. Tool checks
 $missing = @()
-foreach ($tool in @('yt-dlp', 'ffmpeg', 'python')) {
+foreach ($tool in @('ffmpeg', 'python')) {
     if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
         $missing += $tool
     }
 }
+# yt_dlp can be on PATH as 'yt-dlp' OR available as a Python module — accept either.
+$ytDlpAvailable = $false
+if (Get-Command 'yt-dlp' -ErrorAction SilentlyContinue) { $ytDlpAvailable = $true }
+elseif ((Get-Command 'python' -ErrorAction SilentlyContinue) -and `
+        ((& python -c "import yt_dlp" 2>&1; $LASTEXITCODE) -eq 0)) {
+    $ytDlpAvailable = $true
+}
+if (-not $ytDlpAvailable) { $missing += 'yt-dlp' }
+
 if ($missing.Count -gt 0) {
     Write-Host ''
     Write-Host "Missing tools: $($missing -join ', ')" -ForegroundColor Red
     Write-Host ''
     Write-Host 'Install commands:'
-    if ($missing -contains 'yt-dlp') { Write-Host '  winget install yt-dlp.yt-dlp' }
+    if ($missing -contains 'yt-dlp') {
+        Write-Host '  pip install yt-dlp           # recommended (uses Python module)'
+        Write-Host '  winget install yt-dlp.yt-dlp # alternative (CLI binary)'
+    }
     if ($missing -contains 'ffmpeg') { Write-Host '  winget install Gyan.FFmpeg' }
     if ($missing -contains 'python') { Write-Host '  winget install Python.Python.3.12' }
     exit 1

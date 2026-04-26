@@ -41,7 +41,7 @@ def test_fetch_captions_happy_path(tmp_path, monkeypatch):
     assert Path(result["meta_path"]).exists()
     assert Path(result["captions_path"]).exists()
     args = mock_run.call_args[0][0]
-    assert "yt-dlp" in args[0]
+    assert "yt_dlp" in args
     assert "--skip-download" in args
     assert "--write-auto-sub" in args
     assert "--write-info-json" in args

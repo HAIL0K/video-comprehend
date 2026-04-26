@@ -36,7 +36,7 @@ def fetch_captions(url: str) -> dict:
     output_template = str(cache / f"{video_id}.%(ext)s")
 
     cmd = [
-        "yt-dlp",
+        sys.executable, "-m", "yt_dlp",
         "--skip-download",
         "--write-auto-sub",
         "--write-sub",

@@ -20,14 +20,14 @@ Reject playlists, channels, live URLs, and non-YouTube URLs with: `"Not a single
 ## Step 2: Check tools
 
 Run these and confirm exit 0:
-- `yt-dlp --version`
+- `python -c "import yt_dlp"` (the helpers invoke yt-dlp via `python -m yt_dlp`, so the Python module is what matters — the CLI shim is not required)
 - `ffmpeg -version`
 
 If either is missing, print this message and STOP — do **not** dispatch the agent:
 
 ```
 Missing required tools. Install:
-  winget install yt-dlp.yt-dlp
+  pip install yt-dlp           (recommended)
   winget install Gyan.FFmpeg
 
 Then re-run /yt-comprehend.

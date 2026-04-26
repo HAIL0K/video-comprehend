@@ -63,7 +63,7 @@ def test_ensure_video_downloaded_calls_yt_dlp(tmp_path):
         result = ensure_video_downloaded("https://youtu.be/abc", cache)
 
     args = mock_run.call_args[0][0]
-    assert "yt-dlp" in args[0]
+    assert "yt_dlp" in args
     assert "--no-playlist" in args
     assert "https://youtu.be/abc" in args
     assert result == cache / "video.mp4"

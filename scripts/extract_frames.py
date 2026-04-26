@@ -39,7 +39,7 @@ def ensure_video_downloaded(url: str, cache: Path) -> Path:
         return video_path
     cache.mkdir(parents=True, exist_ok=True)
     cmd = [
-        "yt-dlp",
+        sys.executable, "-m", "yt_dlp",
         "--no-playlist",
         "--format", "mp4/bestvideo+bestaudio",
         "--merge-output-format", "mp4",
