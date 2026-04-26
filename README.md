@@ -96,5 +96,24 @@ Test fixtures: `tests/fixtures.txt` lists three URLs (with-captions, no-captions
 
 ## Spec & Plan
 
-- Design: `docs/superpowers/specs/2026-04-26-youtube-comprehension-design.md`
-- Plan: `docs/superpowers/plans/2026-04-26-youtube-comprehension.md`
+- v1 Design: `docs/superpowers/specs/2026-04-26-youtube-comprehension-design.md`
+- v1 Plan: `docs/superpowers/plans/2026-04-26-youtube-comprehension.md`
+- v2 Design (Whisper fallback): `docs/superpowers/specs/2026-04-26-youtube-comprehension-v2-whisper.md`
+- v2 Plan: `docs/superpowers/plans/2026-04-26-youtube-comprehension-v2-whisper.md`
+
+## Validation Results
+
+Last manual smoke test: **2026-04-26**
+
+- **URL tested:** `https://www.youtube.com/watch?v=MGB43Q13WX8` (12:30 German Bitcoin trading video)
+- **Transcript source:** `whisper` — yt-dlp captions returned HTTP 429 (rate limited), Whisper fallback engaged automatically
+- **Whisper transcription:** ~3 min on CPU (`small` model, `int8`)
+- **Keyframes selected:** 15 / 15 (cap)
+- **Frames extracted:** 15 / 15 (0 skipped)
+- **Vision-captioning verified:** chart frame at 10:52 successfully ingested by Read tool — TradingView BTCUSD chart with support/resistance levels, volume profile, watchlist all visible
+
+### Notes from validation
+
+- **CUDA crash on first run.** `faster-whisper` auto-detected CUDA (cuBLAS partially present on the test machine) and tried to load `cublas64_12.dll`, which failed. Fixed by forcing `device="cpu"` with `compute_type="int8"` as the default. GPU users can opt in via `$env:YT_COMPREHEND_WHISPER_DEVICE = "cuda"`.
+- **Metadata gap on partial-failure replay.** When yt-dlp captions partially succeed (writes `info.json`) and the Whisper step then crashes, `info.json` is consumed and a re-run yields a meta.json with only `schema_version` and `transcript_source`. Title/uploader/duration are missing on the recovery run. Documented as a v2.1 fix; pipeline still works because `select_keyframes` falls back to cue-derived duration.
+- **Deixis heuristic is English-only.** German trader content fell through to even-spacing fallback for most frames, but chart-keyword scoring still caught moments mentioning "Weekly-Chart", "Pie-Chart", "Levels". Multilingual deictic phrases would improve keyframe targeting on non-English content. Future enhancement.
