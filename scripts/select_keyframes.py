@@ -89,3 +89,39 @@ def score_cue(cue: Cue) -> int:
     if has_deixis and has_number:
         score += 2
     return score
+
+
+def select_top_n_with_distribution(
+    cues: list[Cue],
+    n: int,
+    duration: float,
+) -> list[dict]:
+    """Pick up to n keyframe records, balancing score with even temporal coverage.
+
+    Algorithm: divide the video into n equal time bins. For each bin, take the
+    highest-scoring cue. If a bin has no cue, skip it. Falls back to even spacing
+    via lowest-score (zero) cues if needed to fill the bin coverage.
+    """
+    if not cues or n <= 0 or duration <= 0:
+        return []
+
+    bin_size = duration / n
+    bins: list[list[Cue]] = [[] for _ in range(n)]
+    for cue in cues:
+        idx = min(int(cue.start_seconds // bin_size), n - 1)
+        bins[idx].append(cue)
+
+    selections: list[dict] = []
+    for i, bin_cues in enumerate(bins):
+        if not bin_cues:
+            continue
+        best = max(bin_cues, key=lambda c: (score_cue(c), -c.start_seconds))
+        reason = best.text if score_cue(best) > 0 else f"even-spacing fallback (~{int(best.start_seconds)}s)"
+        selections.append({
+            "timestamp": best.start_seconds,
+            "reason": reason,
+            "score": score_cue(best),
+        })
+
+    selections.sort(key=lambda s: s["timestamp"])
+    return selections[:n]

@@ -60,3 +60,35 @@ def test_score_cue_numeric_plus_deixis_scores_highest():
 
 def test_score_cue_chart_keyword_scores():
     assert score_cue(_cue("Notice the candlestick pattern on this chart.")) >= 1
+
+
+from scripts.select_keyframes import select_top_n_with_distribution
+
+
+def test_select_top_n_returns_at_most_n():
+    cues = [_cue(f"Look at this {i}", start=i * 10) for i in range(50)]
+    result = select_top_n_with_distribution(cues, n=15, duration=600.0)
+    assert len(result) <= 15
+
+
+def test_select_top_n_distributes_across_duration():
+    """All-deixis cues clustered in the first half — selection should still cover the second half."""
+    cues = [_cue("Look at this", start=i * 5) for i in range(60)]  # 0..295s
+    cues += [_cue("filler", start=300 + i * 5) for i in range(60)]  # 300..595s
+    result = select_top_n_with_distribution(cues, n=10, duration=600.0)
+    # At least 30% of selected cues should fall in the second half (>= 300s).
+    second_half = sum(1 for kf in result if kf["timestamp"] >= 300)
+    assert second_half >= 3, f"Got distribution: {[kf['timestamp'] for kf in result]}"
+
+
+def test_select_top_n_returns_records_with_timestamp_and_reason():
+    cues = [_cue("Look at this 512.40", start=10)]
+    result = select_top_n_with_distribution(cues, n=15, duration=60.0)
+    assert result[0]["timestamp"] == 10.0
+    assert "reason" in result[0]
+    assert isinstance(result[0]["reason"], str)
+    assert len(result[0]["reason"]) > 0
+
+
+def test_select_top_n_empty_cues():
+    assert select_top_n_with_distribution([], n=15, duration=60.0) == []
