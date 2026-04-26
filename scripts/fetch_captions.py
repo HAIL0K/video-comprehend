@@ -64,6 +64,9 @@ def fetch_captions(url: str) -> dict:
             f"No captions available for {video_id}. "
             f"Skill v1 doesn't fall back to ASR; try a video with captions enabled."
         )
+    # Prefer manually-transcribed captions over auto-generated.
+    # yt-dlp marks auto-generated subs with "auto" in the language tag (e.g., a.en.vtt or en.auto.vtt).
+    vtt_candidates.sort(key=lambda p: ("auto" in p.name.lower(), p.name))
     shutil.move(str(vtt_candidates[0]), str(captions_path))
 
     return {

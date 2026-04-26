@@ -60,3 +60,25 @@ def test_fetch_captions_cache_hit(tmp_path, monkeypatch):
 
     assert result["cached"] is True
     mock_run.assert_not_called()
+
+
+def test_fetch_captions_prefers_manual_over_auto_captions(tmp_path, monkeypatch):
+    """If both manual and auto-generated VTTs exist, prefer the manual one."""
+    monkeypatch.setenv("YT_COMPREHEND_CACHE", str(tmp_path))
+    video_id = "dQw4w9WgXcQ"
+    cache = tmp_path / video_id
+
+    def fake_yt_dlp(*args, **kwargs):
+        cache.mkdir(parents=True, exist_ok=True)
+        (cache / f"{video_id}.info.json").write_text(json.dumps({"id": video_id}))
+        # Two VTT candidates: one manual, one auto-generated.
+        (cache / f"{video_id}.en.vtt").write_text("WEBVTT\nMANUAL\n")
+        (cache / f"{video_id}.en.auto.vtt").write_text("WEBVTT\nAUTO\n")
+        return subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+
+    with patch("scripts.fetch_captions.subprocess.run", side_effect=fake_yt_dlp):
+        result = fetch_captions(f"https://youtu.be/{video_id}")
+
+    captions_text = Path(result["captions_path"]).read_text()
+    assert "MANUAL" in captions_text
+    assert "AUTO" not in captions_text
