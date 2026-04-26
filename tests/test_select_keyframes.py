@@ -92,3 +92,24 @@ def test_select_top_n_returns_records_with_timestamp_and_reason():
 
 def test_select_top_n_empty_cues():
     assert select_top_n_with_distribution([], n=15, duration=60.0) == []
+
+
+import json
+from scripts.select_keyframes import select_keyframes_to_file
+
+
+def test_select_keyframes_to_file_writes_json(tmp_path):
+    out_path = tmp_path / "keyframes.json"
+    result = select_keyframes_to_file(
+        captions_path=FIXTURES / "sample.vtt",
+        meta_path=FIXTURES / "sample_meta.json",
+        n=5,
+        out_path=out_path,
+    )
+    assert out_path.exists()
+    data = json.loads(out_path.read_text())
+    assert "keyframes" in data
+    assert len(data["keyframes"]) <= 5
+    assert all("timestamp" in kf and "reason" in kf for kf in data["keyframes"])
+    assert result["count"] == len(data["keyframes"])
+    assert result["keyframes_path"] == str(out_path)

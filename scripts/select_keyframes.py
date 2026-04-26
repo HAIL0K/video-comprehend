@@ -125,3 +125,41 @@ def select_top_n_with_distribution(
 
     selections.sort(key=lambda s: s["timestamp"])
     return selections[:n]
+
+
+import json
+import sys
+
+
+def select_keyframes_to_file(
+    captions_path: Path,
+    meta_path: Path,
+    n: int,
+    out_path: Path,
+) -> dict:
+    """End-to-end: parse captions, load meta, select keyframes, write JSON."""
+    cues = parse_vtt(Path(captions_path))
+    meta = json.loads(Path(meta_path).read_text(encoding="utf-8"))
+    duration = float(meta.get("duration", 0))
+    if duration <= 0 and cues:
+        duration = max(c.end_seconds for c in cues)
+    keyframes = select_top_n_with_distribution(cues, n=n, duration=duration)
+    Path(out_path).write_text(json.dumps({"keyframes": keyframes}, indent=2), encoding="utf-8")
+    return {"count": len(keyframes), "keyframes_path": str(out_path)}
+
+
+def main() -> int:
+    if len(sys.argv) < 4:
+        print("usage: select_keyframes.py <captions.vtt> <meta.json> <n> [out.json]", file=sys.stderr)
+        return 2
+    captions = Path(sys.argv[1])
+    meta = Path(sys.argv[2])
+    n = int(sys.argv[3])
+    out = Path(sys.argv[4]) if len(sys.argv) > 4 else captions.parent / "keyframes.json"
+    result = select_keyframes_to_file(captions, meta, n, out)
+    print(json.dumps(result))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
