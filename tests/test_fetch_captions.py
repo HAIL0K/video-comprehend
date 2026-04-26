@@ -113,3 +113,22 @@ def test_fetch_captions_no_captions_produced(tmp_path, monkeypatch):
     with patch("scripts.fetch_captions.subprocess.run", side_effect=yt_dlp_writes_only_meta):
         with pytest.raises(RuntimeError, match="No captions available"):
             fetch_captions(f"https://youtu.be/{video_id}")
+
+
+def test_meta_json_carries_schema_version_2(tmp_path, monkeypatch):
+    """Newly-written meta.json must record schema_version=2 in v2."""
+    monkeypatch.setenv("YT_COMPREHEND_CACHE", str(tmp_path))
+    video_id = "dQw4w9WgXcQ"
+    cache = tmp_path / video_id
+
+    def fake_yt_dlp(*args, **kwargs):
+        cache.mkdir(parents=True, exist_ok=True)
+        (cache / f"{video_id}.info.json").write_text(json.dumps({"id": video_id, "title": "T"}))
+        (cache / f"{video_id}.en.vtt").write_text("WEBVTT\n")
+        return subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+
+    with patch("scripts.fetch_captions.subprocess.run", side_effect=fake_yt_dlp):
+        result = fetch_captions(f"https://youtu.be/{video_id}")
+
+    meta = json.loads(Path(result["meta_path"]).read_text())
+    assert meta["schema_version"] == 2

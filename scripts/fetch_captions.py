@@ -10,7 +10,7 @@ from pathlib import Path
 
 from scripts._lib import extract_video_id, cache_dir_for
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def fetch_captions(url: str) -> dict:
