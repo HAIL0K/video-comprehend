@@ -48,3 +48,44 @@ def parse_vtt(path: Path) -> list[Cue]:
         if text:
             cues.append(Cue(start_seconds=float(start), end_seconds=float(end), text=text))
     return cues
+
+
+_DEIXIS_PHRASES = [
+    "as you can see",
+    "look at this",
+    "notice the",
+    "here's the",
+    "here is the",
+    "take a look",
+    "on this chart",
+    "in this chart",
+    "see this",
+    "this setup",
+    "this pattern",
+    "this candle",
+    "this level",
+    "this trade",
+    "this entry",
+    "right here",
+]
+_CHART_KEYWORDS = [
+    "chart", "candle", "candlestick", "volume", "vwap", "ema", "rsi",
+    "macd", "level", "support", "resistance", "breakout", "breakdown",
+]
+_NUMERIC_LEVEL = re.compile(r"\b\d{2,5}(?:\.\d{1,4})?\b")
+
+
+def score_cue(cue: Cue) -> int:
+    """Heuristic score: how likely is this cue to coincide with a chart-relevant frame?"""
+    text = cue.text.lower()
+    score = 0
+    has_deixis = any(phrase in text for phrase in _DEIXIS_PHRASES)
+    has_chart_keyword = any(kw in text for kw in _CHART_KEYWORDS)
+    has_number = bool(_NUMERIC_LEVEL.search(text))
+    if has_deixis:
+        score += 2
+    if has_chart_keyword:
+        score += 1
+    if has_deixis and has_number:
+        score += 2
+    return score

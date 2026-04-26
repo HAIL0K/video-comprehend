@@ -33,3 +33,30 @@ def test_parse_vtt_strips_html_tags(tmp_path):
     )
     cues = parse_vtt(f)
     assert cues[0].text == "Hello world"
+
+
+from scripts.select_keyframes import score_cue
+
+
+def _cue(text, start=10.0):
+    return Cue(start_seconds=start, end_seconds=start + 4.0, text=text)
+
+
+def test_score_cue_plain_text_low_score():
+    assert score_cue(_cue("This is generic narration.")) == 0
+
+
+def test_score_cue_deictic_phrase_scores():
+    assert score_cue(_cue("As you can see, the volume spiked.")) >= 2
+    assert score_cue(_cue("Look at this chart.")) >= 2
+    assert score_cue(_cue("Here's the setup we want.")) >= 2
+
+
+def test_score_cue_numeric_plus_deixis_scores_highest():
+    plain_deixis = score_cue(_cue("As you can see, it works."))
+    deixis_plus_number = score_cue(_cue("As you can see, the level is 512.40."))
+    assert deixis_plus_number > plain_deixis
+
+
+def test_score_cue_chart_keyword_scores():
+    assert score_cue(_cue("Notice the candlestick pattern on this chart.")) >= 1
