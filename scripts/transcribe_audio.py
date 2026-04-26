@@ -36,3 +36,38 @@ def segments_to_vtt(segments: Iterable[_Segment]) -> str:
         parts.append(text)
         parts.append("")
     return "\n".join(parts) + "\n"
+
+
+import os
+from pathlib import Path
+
+# Lazy import — faster_whisper is heavy. If unavailable, leave the symbol as None
+# so transcribe_audio() can produce a friendly error message.
+try:
+    from faster_whisper import WhisperModel  # type: ignore
+except ImportError:
+    WhisperModel = None  # type: ignore
+
+
+_DEFAULT_MODEL = "small"
+
+
+def transcribe_audio(audio_path: Path, model_name: str | None = None) -> str:
+    """Transcribe audio at `audio_path` using faster-whisper. Returns VTT.
+
+    Model selection precedence: explicit `model_name` arg > $YT_COMPREHEND_WHISPER_MODEL > "small".
+
+    Raises FileNotFoundError if `audio_path` doesn't exist.
+    Raises RuntimeError with install message if faster-whisper isn't importable.
+    """
+    audio_path = Path(audio_path)
+    if not audio_path.exists():
+        raise FileNotFoundError(f"Audio file not found: {audio_path}")
+    if WhisperModel is None:
+        raise RuntimeError(
+            "faster-whisper is not installed. Install with: pip install faster-whisper"
+        )
+    chosen = model_name or os.environ.get("YT_COMPREHEND_WHISPER_MODEL") or _DEFAULT_MODEL
+    model = WhisperModel(chosen)
+    segments, _info = model.transcribe(str(audio_path))
+    return segments_to_vtt(segments)
