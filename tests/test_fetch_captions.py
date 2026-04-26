@@ -45,6 +45,9 @@ def test_fetch_captions_happy_path(tmp_path, monkeypatch):
     assert "--skip-download" in args
     assert "--write-auto-sub" in args
     assert "--write-info-json" in args
+    assert result["transcript_source"] == "captions"
+    meta = json.loads(Path(result["meta_path"]).read_text())
+    assert meta["transcript_source"] == "captions"
 
 
 def test_fetch_captions_cache_hit(tmp_path, monkeypatch):
@@ -96,7 +99,7 @@ def test_fetch_captions_yt_dlp_failure(tmp_path, monkeypatch):
             args=[], returncode=1, stdout="", stderr="ERROR: Video unavailable",
         )
         with pytest.raises(RuntimeError, match="yt-dlp failed"):
-            fetch_captions("https://youtu.be/dQw4w9WgXcQ")
+            fetch_captions("https://youtu.be/dQw4w9WgXcQ", asr_fallback=False)
 
 
 def test_fetch_captions_no_captions_produced(tmp_path, monkeypatch):
@@ -112,7 +115,7 @@ def test_fetch_captions_no_captions_produced(tmp_path, monkeypatch):
 
     with patch("scripts.fetch_captions.subprocess.run", side_effect=yt_dlp_writes_only_meta):
         with pytest.raises(RuntimeError, match="No captions available"):
-            fetch_captions(f"https://youtu.be/{video_id}")
+            fetch_captions(f"https://youtu.be/{video_id}", asr_fallback=False)
 
 
 def test_meta_json_carries_schema_version_2(tmp_path, monkeypatch):
@@ -178,3 +181,82 @@ def test_ensure_audio_downloaded_yt_dlp_fail_raises(tmp_path):
         )
         with pytest.raises(RuntimeError, match="audio download failed"):
             ensure_audio_downloaded("https://youtu.be/abc", cache)
+
+
+def test_fetch_captions_falls_back_to_whisper_on_yt_dlp_failure(tmp_path, monkeypatch):
+    """yt-dlp captions fail (e.g. 429) — Whisper takes over and produces VTT."""
+    monkeypatch.setenv("YT_COMPREHEND_CACHE", str(tmp_path))
+    video_id = "dQw4w9WgXcQ"
+    cache = tmp_path / video_id
+
+    def fake_run(args, **kwargs):
+        # First call: caption download. Fail with 429.
+        if "--write-auto-sub" in args:
+            cache.mkdir(parents=True, exist_ok=True)
+            (cache / f"{video_id}.info.json").write_text(json.dumps({"id": video_id, "title": "T"}))
+            return subprocess.CompletedProcess(
+                args=args, returncode=1, stdout="",
+                stderr="ERROR: HTTP Error 429: Too Many Requests",
+            )
+        # Second call: audio download. Succeed.
+        if "--extract-audio" in args:
+            cache.mkdir(parents=True, exist_ok=True)
+            (cache / "audio.m4a").write_bytes(b"fake audio")
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+
+    with patch("scripts.fetch_captions.subprocess.run", side_effect=fake_run), \
+         patch("scripts.fetch_captions.transcribe_audio", return_value="WEBVTT\n\n00:00:00.000 --> 00:00:02.000\nhello\n"):
+        result = fetch_captions(f"https://youtu.be/{video_id}")
+
+    assert result["transcript_source"] == "whisper"
+    captions = Path(result["captions_path"]).read_text()
+    assert "hello" in captions
+    meta = json.loads(Path(result["meta_path"]).read_text())
+    assert meta["transcript_source"] == "whisper"
+    assert meta["schema_version"] == 2
+
+
+def test_fetch_captions_falls_back_to_whisper_on_no_captions_produced(tmp_path, monkeypatch):
+    """yt-dlp succeeds but produces no VTT (caption-less video) — Whisper takes over."""
+    monkeypatch.setenv("YT_COMPREHEND_CACHE", str(tmp_path))
+    video_id = "dQw4w9WgXcQ"
+    cache = tmp_path / video_id
+
+    def fake_run(args, **kwargs):
+        cache.mkdir(parents=True, exist_ok=True)
+        if "--write-auto-sub" in args:
+            (cache / f"{video_id}.info.json").write_text(json.dumps({"id": video_id, "title": "T"}))
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+        if "--extract-audio" in args:
+            (cache / "audio.m4a").write_bytes(b"fake audio")
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+
+    with patch("scripts.fetch_captions.subprocess.run", side_effect=fake_run), \
+         patch("scripts.fetch_captions.transcribe_audio", return_value="WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nasr\n"):
+        result = fetch_captions(f"https://youtu.be/{video_id}")
+
+    assert result["transcript_source"] == "whisper"
+
+
+def test_fetch_captions_audio_download_failure_raises(tmp_path, monkeypatch):
+    """If captions fail AND audio download also fails, surface the audio error."""
+    monkeypatch.setenv("YT_COMPREHEND_CACHE", str(tmp_path))
+    video_id = "dQw4w9WgXcQ"
+    cache = tmp_path / video_id
+
+    def fake_run(args, **kwargs):
+        cache.mkdir(parents=True, exist_ok=True)
+        if "--write-auto-sub" in args:
+            (cache / f"{video_id}.info.json").write_text("{}")
+            return subprocess.CompletedProcess(args=args, returncode=1, stdout="", stderr="429")
+        if "--extract-audio" in args:
+            return subprocess.CompletedProcess(
+                args=args, returncode=1, stdout="", stderr="ERROR: video unavailable"
+            )
+        return subprocess.CompletedProcess(args=args, returncode=0, stdout="", stderr="")
+
+    with patch("scripts.fetch_captions.subprocess.run", side_effect=fake_run):
+        with pytest.raises(RuntimeError, match="audio download failed"):
+            fetch_captions(f"https://youtu.be/{video_id}")

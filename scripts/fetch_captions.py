@@ -9,15 +9,22 @@ import sys
 from pathlib import Path
 
 from scripts._lib import extract_video_id, cache_dir_for
+from scripts.transcribe_audio import transcribe_audio
 
 SCHEMA_VERSION = 2
 
 
-def fetch_captions(url: str) -> dict:
-    """Ensure cache dir for the video has meta.json + captions.vtt. Returns paths + cached flag.
+def fetch_captions(url: str, asr_fallback: bool = True) -> dict:
+    """Ensure cache dir for the video has meta.json + captions.vtt.
+
+    v2: tries yt-dlp captions first; on failure (429, no captions, etc.) falls back
+    to downloading audio and transcribing with faster-whisper. Set asr_fallback=False
+    to disable the fallback and restore v1 fail-fast behavior.
+
+    Returns: {video_id, meta_path, captions_path, cached, transcript_source}.
 
     Raises ValueError for non-YouTube URLs.
-    Raises RuntimeError if yt-dlp fails or no captions are produced.
+    Raises RuntimeError if yt-dlp fails and (asr_fallback is False, or audio download fails).
     """
     video_id = extract_video_id(url)
     cache = cache_dir_for(video_id)
@@ -25,11 +32,13 @@ def fetch_captions(url: str) -> dict:
     captions_path = cache / "captions.vtt"
 
     if meta_path.exists() and captions_path.exists():
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
         return {
             "video_id": video_id,
             "meta_path": str(meta_path),
             "captions_path": str(captions_path),
             "cached": True,
+            "transcript_source": meta.get("transcript_source", "captions"),
         }
 
     cache.mkdir(parents=True, exist_ok=True)
@@ -48,32 +57,49 @@ def fetch_captions(url: str) -> dict:
         url,
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True)
-    if proc.returncode != 0:
-        raise RuntimeError(f"yt-dlp failed (exit {proc.returncode}): {proc.stderr.strip()}")
 
+    captions_error: str | None = None
+    if proc.returncode != 0:
+        captions_error = f"yt-dlp failed (exit {proc.returncode}): {proc.stderr.strip()}"
+
+    # Move info.json -> meta.json regardless of caption outcome — we still want metadata.
     info_json = cache / f"{video_id}.info.json"
+    meta_data: dict = {}
     if info_json.exists():
         meta_data = json.loads(info_json.read_text(encoding="utf-8"))
-        meta_data["schema_version"] = SCHEMA_VERSION
-        meta_path.write_text(json.dumps(meta_data, indent=2), encoding="utf-8")
         info_json.unlink()
 
-    vtt_candidates = list(cache.glob(f"{video_id}*.vtt"))
-    if not vtt_candidates:
-        raise RuntimeError(
-            f"No captions available for {video_id}. "
-            f"Skill v1 doesn't fall back to ASR; try a video with captions enabled."
-        )
-    # Prefer manually-transcribed captions over auto-generated.
-    # yt-dlp marks auto-generated subs with "auto" in the language tag (e.g., a.en.vtt or en.auto.vtt).
-    vtt_candidates.sort(key=lambda p: ("auto" in p.name.lower(), p.name))
-    shutil.move(str(vtt_candidates[0]), str(captions_path))
+    transcript_source = "captions"
+    if captions_error is None:
+        vtt_candidates = list(cache.glob(f"{video_id}*.vtt"))
+        if not vtt_candidates:
+            captions_error = (
+                f"No captions available for {video_id}. "
+                f"Skill v1 doesn't fall back to ASR; try a video with captions enabled."
+            )
+        else:
+            vtt_candidates.sort(key=lambda p: ("auto" in p.name.lower(), p.name))
+            shutil.move(str(vtt_candidates[0]), str(captions_path))
+
+    if captions_error is not None:
+        if not asr_fallback:
+            raise RuntimeError(captions_error)
+        # Fall back to Whisper.
+        audio_path = ensure_audio_downloaded(url, cache)
+        vtt = transcribe_audio(audio_path)
+        captions_path.write_text(vtt, encoding="utf-8")
+        transcript_source = "whisper"
+
+    meta_data["schema_version"] = SCHEMA_VERSION
+    meta_data["transcript_source"] = transcript_source
+    meta_path.write_text(json.dumps(meta_data, indent=2), encoding="utf-8")
 
     return {
         "video_id": video_id,
         "meta_path": str(meta_path),
         "captions_path": str(captions_path),
         "cached": False,
+        "transcript_source": transcript_source,
     }
 
 
