@@ -82,3 +82,34 @@ def test_fetch_captions_prefers_manual_over_auto_captions(tmp_path, monkeypatch)
     captions_text = Path(result["captions_path"]).read_text()
     assert "MANUAL" in captions_text
     assert "AUTO" not in captions_text
+
+
+def test_fetch_captions_invalid_url():
+    with pytest.raises(ValueError):
+        fetch_captions("https://example.com")
+
+
+def test_fetch_captions_yt_dlp_failure(tmp_path, monkeypatch):
+    monkeypatch.setenv("YT_COMPREHEND_CACHE", str(tmp_path))
+    with patch("scripts.fetch_captions.subprocess.run") as mock_run:
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=1, stdout="", stderr="ERROR: Video unavailable",
+        )
+        with pytest.raises(RuntimeError, match="yt-dlp failed"):
+            fetch_captions("https://youtu.be/dQw4w9WgXcQ")
+
+
+def test_fetch_captions_no_captions_produced(tmp_path, monkeypatch):
+    """yt-dlp succeeds but produces no .vtt — hard fail with the spec's message."""
+    monkeypatch.setenv("YT_COMPREHEND_CACHE", str(tmp_path))
+    video_id = "dQw4w9WgXcQ"
+    cache = tmp_path / video_id
+
+    def yt_dlp_writes_only_meta(*args, **kwargs):
+        cache.mkdir(parents=True, exist_ok=True)
+        (cache / f"{video_id}.info.json").write_text("{}")
+        return subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+
+    with patch("scripts.fetch_captions.subprocess.run", side_effect=yt_dlp_writes_only_meta):
+        with pytest.raises(RuntimeError, match="No captions available"):
+            fetch_captions(f"https://youtu.be/{video_id}")
