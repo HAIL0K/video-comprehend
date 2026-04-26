@@ -50,12 +50,14 @@ except ImportError:
 
 
 _DEFAULT_MODEL = "small"
+_DEFAULT_DEVICE = "cpu"
 
 
 def transcribe_audio(audio_path: Path, model_name: str | None = None) -> str:
     """Transcribe audio at `audio_path` using faster-whisper. Returns VTT.
 
     Model selection precedence: explicit `model_name` arg > $YT_COMPREHEND_WHISPER_MODEL > "small".
+    Device selection: $YT_COMPREHEND_WHISPER_DEVICE > "cpu". Set to "cuda" for GPU.
 
     Raises FileNotFoundError if `audio_path` doesn't exist.
     Raises RuntimeError with install message if faster-whisper isn't importable.
@@ -68,6 +70,8 @@ def transcribe_audio(audio_path: Path, model_name: str | None = None) -> str:
             "faster-whisper is not installed. Install with: pip install faster-whisper"
         )
     chosen = model_name or os.environ.get("YT_COMPREHEND_WHISPER_MODEL") or _DEFAULT_MODEL
-    model = WhisperModel(chosen)
+    device = os.environ.get("YT_COMPREHEND_WHISPER_DEVICE") or _DEFAULT_DEVICE
+    compute_type = "int8" if device == "cpu" else "default"
+    model = WhisperModel(chosen, device=device, compute_type=compute_type)
     segments, _info = model.transcribe(str(audio_path))
     return segments_to_vtt(segments)
