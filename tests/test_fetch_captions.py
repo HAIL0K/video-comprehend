@@ -260,3 +260,17 @@ def test_fetch_captions_audio_download_failure_raises(tmp_path, monkeypatch):
     with patch("scripts.fetch_captions.subprocess.run", side_effect=fake_run):
         with pytest.raises(RuntimeError, match="audio download failed"):
             fetch_captions(f"https://youtu.be/{video_id}")
+
+
+def test_main_passes_no_asr_fallback_flag(tmp_path, monkeypatch, capsys):
+    """Smoke test: invoking main() with --no-asr-fallback propagates to fetch_captions."""
+    monkeypatch.setenv("YT_COMPREHEND_CACHE", str(tmp_path))
+    monkeypatch.setattr(
+        "sys.argv",
+        ["fetch_captions.py", "--no-asr-fallback", "https://example.com"],
+    )
+    from scripts.fetch_captions import main
+    rc = main()
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "Not a YouTube video URL" in err

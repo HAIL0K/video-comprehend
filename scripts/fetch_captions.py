@@ -130,11 +130,16 @@ def ensure_audio_downloaded(url: str, cache: Path) -> Path:
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        print("usage: fetch_captions.py <youtube-url>", file=sys.stderr)
+    args = sys.argv[1:]
+    asr_fallback = True
+    if "--no-asr-fallback" in args:
+        args = [a for a in args if a != "--no-asr-fallback"]
+        asr_fallback = False
+    if len(args) != 1:
+        print("usage: fetch_captions.py [--no-asr-fallback] <youtube-url>", file=sys.stderr)
         return 2
     try:
-        result = fetch_captions(sys.argv[1])
+        result = fetch_captions(args[0], asr_fallback=asr_fallback)
     except (ValueError, RuntimeError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
