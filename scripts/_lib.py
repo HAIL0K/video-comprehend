@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import re
-import unicodedata
 from pathlib import Path
 
 _VIDEO_ID_PATTERNS = [
@@ -45,6 +44,6 @@ def slugify(title: str, max_len: int = 60) -> str:
     lowered = ascii_only.lower()
     cleaned = re.sub(r"[^a-z0-9]+", "-", lowered).strip("-")
     if len(cleaned) <= max_len:
-        return cleaned
+        return cleaned or "untitled"
     truncated = cleaned[:max_len].rsplit("-", 1)[0]
-    return truncated or cleaned[:max_len]
+    return truncated or "untitled"

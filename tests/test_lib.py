@@ -55,3 +55,13 @@ def test_slugify_truncates_long_titles():
     long_title = "word " * 50
     result = slugify(long_title)
     assert len(result) <= 60
+
+
+@pytest.mark.parametrize("title", [
+    "",
+    "日本語テスト",
+    "!!!",
+    "   ",
+])
+def test_slugify_empty_or_all_filtered_returns_untitled(title):
+    assert slugify(title) == "untitled"
