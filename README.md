@@ -22,10 +22,28 @@ A markdown report at `<cwd>/docs/research/yt/<video-id>-<slug>.md` containing:
 3. Subagent context — full transcript and frame descriptions never enter the parent session.
 4. Aggressive caching by video ID — re-runs are free.
 
+## Fallback behavior
+
+The skill prefers YouTube's captions (free, instant). When that fails — most often because YouTube rate-limits the captions endpoint, occasionally because the video has no captions — it falls back to local ASR using `faster-whisper`:
+
+| Phase | Captions path | Whisper fallback |
+|---|---|---|
+| Cold-cache cost | 5–15 sec | 30–90 sec download + ~12 min transcription on CPU (`small` model, 1-hour video). GPU drops this to ~30 sec. |
+| Warm-cache cost | 0 (returns cached report) | 0 (returns cached report) |
+| Disk | ~1 MB captions + meta | + ~30 MB cached audio |
+
+The report frontmatter records `transcript_source: captions | whisper`, and a caveat is added to the report when ASR was used (Whisper occasionally mishears tickers and numerical levels).
+
+To disable the fallback and restore v1 fail-fast behavior, pass `--no-asr-fallback` to the underlying `fetch_captions.py`, or invoke the slash skill in fail-fast mode (forthcoming UI knob).
+
+Tune the Whisper model with `$env:YT_COMPREHEND_WHISPER_MODEL = "base"` (or `tiny`/`small`/`medium`/`large`).
+
 ## Install
 
 Requires Windows + PowerShell. Tools checked at install time:
-- `yt-dlp`, `ffmpeg` on PATH (install via `winget install yt-dlp.yt-dlp` and `winget install Gyan.FFmpeg`)
+- `yt-dlp` Python module (`pip install yt-dlp`) or CLI binary (`winget install yt-dlp.yt-dlp`)
+- `faster-whisper` Python module (`pip install faster-whisper`) — used as ASR fallback when YouTube rate-limits captions or a video has no captions
+- `ffmpeg` on PATH (`winget install Gyan.FFmpeg`)
 - Python 3.10+ on PATH
 
 ```powershell
@@ -33,6 +51,8 @@ Requires Windows + PowerShell. Tools checked at install time:
 ```
 
 This copies `skill/`, `agent/`, and `scripts/` into `~/.claude/`. Idempotent — re-run any time.
+
+The first Whisper transcription downloads the model (~244 MB for `small`, the default) into `~/.cache/huggingface/`. Subsequent runs reuse it.
 
 ## Usage
 
@@ -54,11 +74,12 @@ Or have `research-before-building` dispatch the `youtube-analyzer` agent — sam
 Remove-Item -Recurse -Force "$env:USERPROFILE\.cache\yt-comprehend"
 ```
 
-## Limits (v1)
+## Limits (v2)
 
-- No ASR fallback — videos without captions hard-fail.
 - Single videos only — no playlists, channels, or live streams.
-- 15 keyframes max per video. Override with `output=` not yet supported for the cap.
+- 15 keyframes max per video.
+- Whisper ASR is segment-level (not word-level). Sufficient for keyframe selection; not sub-second precise.
+- Whisper transcription is local-CPU by default. Set up CUDA/cuDNN for `faster-whisper` if you want GPU speed (~30x faster).
 - Windows-only installer (Linux/macOS planned).
 
 ## Development
