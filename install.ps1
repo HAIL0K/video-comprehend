@@ -17,12 +17,29 @@ foreach ($tool in @('ffmpeg', 'python')) {
 }
 # yt_dlp can be on PATH as 'yt-dlp' OR available as a Python module — accept either.
 $ytDlpAvailable = $false
-if (Get-Command 'yt-dlp' -ErrorAction SilentlyContinue) { $ytDlpAvailable = $true }
-elseif ((Get-Command 'python' -ErrorAction SilentlyContinue) -and `
-        ((& python -c "import yt_dlp" 2>&1; $LASTEXITCODE) -eq 0)) {
+if (Get-Command 'yt-dlp' -ErrorAction SilentlyContinue) {
     $ytDlpAvailable = $true
+} elseif (Get-Command 'python' -ErrorAction SilentlyContinue) {
+    try {
+        & python -c "import yt_dlp" 2>$null
+        if ($LASTEXITCODE -eq 0) { $ytDlpAvailable = $true }
+    } catch {
+        # module not available, ytDlpAvailable remains false
+    }
 }
 if (-not $ytDlpAvailable) { $missing += 'yt-dlp' }
+
+# faster-whisper module check (used by ASR fallback in v2)
+$whisperAvailable = $false
+if (Get-Command 'python' -ErrorAction SilentlyContinue) {
+    try {
+        & python -c "import faster_whisper" 2>$null
+        if ($LASTEXITCODE -eq 0) { $whisperAvailable = $true }
+    } catch {
+        # module not available, whisperAvailable remains false
+    }
+}
+if (-not $whisperAvailable) { $missing += 'faster-whisper' }
 
 if ($missing.Count -gt 0) {
     Write-Host ''
@@ -32,6 +49,9 @@ if ($missing.Count -gt 0) {
     if ($missing -contains 'yt-dlp') {
         Write-Host '  pip install yt-dlp           # recommended (uses Python module)'
         Write-Host '  winget install yt-dlp.yt-dlp # alternative (CLI binary)'
+    }
+    if ($missing -contains 'faster-whisper') {
+        Write-Host '  pip install faster-whisper  # required for ASR fallback'
     }
     if ($missing -contains 'ffmpeg') { Write-Host '  winget install Gyan.FFmpeg' }
     if ($missing -contains 'python') { Write-Host '  winget install Python.Python.3.12' }
