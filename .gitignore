@@ -5,3 +5,7 @@ __pycache__/
 dist/
 build/
 .venv/
+
+# Local scratch / debug (not part of the skill)
+build_report.py
+transcript_app*.txt
