@@ -1,119 +1,130 @@
-# yt-comprehend
+# video-comprehend (formerly yt-comprehend)
 
-A Claude Code slash skill + subagent that turns a YouTube URL into a structured comprehension report. Designed to feed `research-before-building` and ultimately `brainstorming`.
+A Claude Code skill + subagent that turns a video into a structured, searchable
+comprehension report. It works on YouTube, any other site yt-dlp supports, and local
+video files.
 
-## What it produces
+v3 replaces the YouTube-only v2 pipeline. `/yt-comprehend` still works: it is now a
+thin alias that forwards to `/video-comprehend`, and the old
+`~/.cache/yt-comprehend/<video-id>` cache is reused, so nothing re-downloads.
 
-A markdown report at `<cwd>/docs/research/yt/<video-id>-<slug>.md` containing:
+Everything runs locally and costs nothing: ffmpeg, yt-dlp, faster-whisper (opt-in),
+stdlib sqlite3 FTS5. No paid API is called.
 
-- TL;DR (3–5 sentences)
-- Focus lens (the agent's self-generated analysis prompt — surfaced so you can see what was prioritized)
-- Specifics (flat list: tickers, levels, indicators, named strategies, etc., adapted to video type)
-- Key visual moments (up to 15 keyframes, each with timestamp + on-screen description)
-- Section summaries (5–10 logical sections, ~3–5 sentences each)
-- Claims & evidence (tier-tagged: ★ asserted, ★★ anecdotal, ★★★ demonstrated)
-- Suggested research queries (3–5 triangulation prompts for the research skill)
-- Full transcript appendix (verbatim, below `---`)
+## What changed in v3
 
-## Why it's token-efficient
+- **Any source.** YouTube, any yt-dlp URL, or a local file. Local files use a sidecar
+  `.vtt`/`.srt` or an embedded subtitle track.
+- **Frames come from three channels.** v2 picked frames from captions only. v3 merges
+  three channels:
+  - *semantic*: the speaker points at something ("look at this", domain terms, numbers)
+  - *scene*: ffmpeg scene changes, which catch slides, silent screen shares and
+    charts marked up without narration
+  - *floor*: evenly spaced frames, which cover long stretches nobody narrates
 
-1. Captions over ASR — free, fast, no audio download.
-2. Caption-driven keyframe selection — only ~15 frames vision-captioned, not uniform sampling.
-3. Subagent context — full transcript and frame descriptions never enter the parent session.
-4. Aggressive caching by video ID — re-runs are free.
+  Candidates less than 3 s apart merge into one. A frame that several channels agree
+  on ranks above a frame only one channel found.
+- **Two profiles.**
+  - `chart`: 1280 px frames, budget 12–40. Global dedup is loose and local-change
+    detection is very sensitive, so a chart that gains one drawn line is kept.
+  - `general`: 768 px, budget 10–25, stricter dedup.
 
-## Fallback behavior
+  The frame budget adapts to video length and scene density.
+- **Reports are project-scoped and searchable.** Reports and an append-only
+  `_index.jsonl` go into the project you are working in (`docs/research/video/`, or
+  `docs/research/yt/` if that already exists). `/video-comprehend --search <query>`
+  returns the video, the section and the timestamp of the spoken moment.
+- **Cleaner transcripts.** Auto-captions arrive as a rolling window and are about two
+  thirds redundant. `render_transcript.py` collapses the overlap at word level and
+  keeps the real timestamps. HTML entities that were escaped twice (`&amp;nbsp;`,
+  common in caption tracks uploaded by publishers) are decoded.
+- **Downloads hold up better.** YouTube now gates player clients behind PO tokens. v3
+  retries `default → web_embedded → tv_simply → android_vr → web` instead of
+  trusting yt-dlp's default client, which returns 403 on many videos. Downloads are
+  video-only, capped at 1080p, and deleted once frames are extracted.
+- **Whisper is opt-in.** Captions are the default and only transcript channel. Local
+  ASR runs only with `--asr-fallback`, because Whisper is slow, invents text over music
+  and crosstalk, and loses the spoken timestamps that make reports searchable. When it
+  does run, it uses a GPU if one is present (`large-v3-turbo`, batched) and falls back
+  to CPU (`small`).
 
-The skill prefers YouTube's captions (free, instant). When that fails — most often because YouTube rate-limits the captions endpoint, occasionally because the video has no captions — it falls back to local ASR using `faster-whisper`:
+## What a report contains
 
-| Phase | Captions path | Whisper fallback |
-|---|---|---|
-| Cold-cache cost | 5–15 sec | 30–90 sec download + ~12 min transcription on CPU (`small` model, 1-hour video). GPU drops this to ~30 sec. |
-| Warm-cache cost | 0 (returns cached report) | 0 (returns cached report) |
-| Disk | ~1 MB captions + meta | + ~30 MB cached audio |
+TL;DR, focus lens, specifics (tickers, levels, named strategies…), key visual moments
+with timestamps, section summaries, claims tagged by evidence tier, suggested research
+queries, and the deduplicated transcript as an appendix. The report frontmatter
+records `transcript_source: captions | whisper`.
 
-The report frontmatter records `transcript_source: captions | whisper`, and a caveat is added to the report when ASR was used (Whisper occasionally mishears tickers and numerical levels).
-
-To disable the fallback and restore v1 fail-fast behavior, pass `--no-asr-fallback` to the underlying `fetch_captions.py`, or invoke the slash skill in fail-fast mode (forthcoming UI knob).
-
-Tune the Whisper model with `$env:YT_COMPREHEND_WHISPER_MODEL = "base"` (or `tiny`/`small`/`medium`/`large`).
+The analysis runs in a subagent (`video-analyzer`), so frames and the full transcript
+never enter your main session's context.
 
 ## Install
 
-Requires Windows + PowerShell. Tools checked at install time:
-- `yt-dlp` Python module (`pip install yt-dlp`) or CLI binary (`winget install yt-dlp.yt-dlp`)
-- `faster-whisper` Python module (`pip install faster-whisper`) — used as ASR fallback when YouTube rate-limits captions or a video has no captions
-- `ffmpeg` on PATH (`winget install Gyan.FFmpeg`)
-- Python 3.10+ on PATH
+Windows + PowerShell. Requirements:
 
 ```powershell
+pip install yt-dlp numpy pillow     # required (yt-dlp only for URLs)
+pip install faster-whisper          # optional, for --asr-fallback
+winget install Gyan.FFmpeg          # required
 .\install.ps1
 ```
 
-This copies `skill/`, `agent/`, and `scripts/` into `~/.claude/`. Idempotent — re-run any time.
-
-The first Whisper transcription downloads the model (~244 MB for `small`, the default) into `~/.cache/huggingface/`. Subsequent runs reuse it.
+The installer copies `skill/video-comprehend`, `skill/yt-comprehend` (alias),
+`scripts/` and `agent/video-analyzer.md` into `~/.claude/`. It also removes what
+the v2 installer left behind (`agents/youtube-analyzer.md` and
+`skills/yt-comprehend/scripts`). You can re-run it at any time.
+`.\uninstall.ps1` removes everything the installer added. It leaves the cache and
+the reports in your projects alone.
 
 ## Usage
 
-In any Claude Code session:
-
 ```
-/yt-comprehend https://youtu.be/<id>
-/yt-comprehend https://youtu.be/<id> output=./my-report.md
-/yt-comprehend https://youtu.be/<id> --force
+/video-comprehend <url-or-path>
+/video-comprehend <url> --profile chart
+/video-comprehend <url> --from 10:00 --to 25:00 --budget 20
+/video-comprehend <file.mp4> --no-frames          # audio-first content
+/video-comprehend <url> output=./report.md --force
+/video-comprehend --search "funding rate"
 ```
 
-Or have `research-before-building` dispatch the `youtube-analyzer` agent — same behavior.
+`research-before-building` and other skills can dispatch the `video-analyzer` agent
+directly.
 
-## Cache
+### Environment knobs
 
-`~/.cache/yt-comprehend/<video-id>/` holds `meta.json`, `captions.vtt`, `video.mp4`, `frames/*.png`, and `report.md`. Re-runs hit the cache. To clear:
+| variable | effect |
+|---|---|
+| `VIDEO_COMPREHEND_CACHE` | cache root (default `~/.cache/yt-comprehend`) |
+| `VIDEO_COMPREHEND_WHISPER_MODEL` | Whisper model for `--asr-fallback` |
+| `VIDEO_COMPREHEND_WHISPER_BATCH` | GPU batch size |
+| `VIDEO_COMPREHEND_YTDLP_COOKIES_FROM_BROWSER` | pass `--cookies-from-browser` to yt-dlp |
+| `VIDEO_COMPREHEND_YTDLP_COOKIES` | path to a cookies.txt for yt-dlp |
+
+The v2 `YT_COMPREHEND_*` names are still read as fallbacks.
+
+## Tests
 
 ```powershell
-Remove-Item -Recurse -Force "$env:USERPROFILE\.cache\yt-comprehend"
+python tests/test_pipeline.py      # or: python -m pytest -v
 ```
 
-## Limits (v2)
+The 31 tests cover source resolution, scene/floor candidates, caption dedup and
+scoring, adaptive budget, channel-agreement merging, temporal distribution, both dedup
+profiles, report chunking and project search. They need no network and no ffmpeg.
 
-- Single videos only — no playlists, channels, or live streams.
-- 15 keyframes max per video.
-- Whisper ASR is segment-level (not word-level). Sufficient for keyframe selection; not sub-second precise.
-- Whisper transcription is local-CPU by default. Set up CUDA/cuDNN for `faster-whisper` if you want GPU speed (~30x faster).
-- Windows-only installer (Linux/macOS planned).
+## Limits
 
-## Development
+- Single videos only. Playlists, channels and live streams are rejected.
+- Whisper output is segment-level, not word-level.
+- The installer is Windows-only. The scripts are plain Python and run on any OS.
 
-```powershell
-# Run unit tests
-python -m pytest -v
+## Credits
 
-# Manual end-to-end (after install)
-/yt-comprehend <url>
-```
+The scene-detection channel, adaptive budget and dedup ideas come from
+[claude-real-video](https://github.com/HUANGCHIHHUNGLeo/claude-real-video) (MIT). v3
+changes them for chart content (local-change dedup, 1280 px) and keeps memory
+per-project instead of in a global database.
 
-Test fixtures: `tests/fixtures.txt` lists three URLs (with-captions, no-captions, region-locked) for manual smoke tests.
+## History
 
-## Spec & Plan
-
-- v1 Design: `docs/superpowers/specs/2026-04-26-youtube-comprehension-design.md`
-- v1 Plan: `docs/superpowers/plans/2026-04-26-youtube-comprehension.md`
-- v2 Design (Whisper fallback): `docs/superpowers/specs/2026-04-26-youtube-comprehension-v2-whisper.md`
-- v2 Plan: `docs/superpowers/plans/2026-04-26-youtube-comprehension-v2-whisper.md`
-
-## Validation Results
-
-Last manual smoke test: **2026-04-26**
-
-- **URL tested:** `https://www.youtube.com/watch?v=MGB43Q13WX8` (12:30 German Bitcoin trading video)
-- **Transcript source:** `whisper` — yt-dlp captions returned HTTP 429 (rate limited), Whisper fallback engaged automatically
-- **Whisper transcription:** ~3 min on CPU (`small` model, `int8`)
-- **Keyframes selected:** 15 / 15 (cap)
-- **Frames extracted:** 15 / 15 (0 skipped)
-- **Vision-captioning verified:** chart frame at 10:52 successfully ingested by Read tool — TradingView BTCUSD chart with support/resistance levels, volume profile, watchlist all visible
-
-### Notes from validation
-
-- **CUDA crash on first run.** `faster-whisper` auto-detected CUDA (cuBLAS partially present on the test machine) and tried to load `cublas64_12.dll`, which failed. Fixed by forcing `device="cpu"` with `compute_type="int8"` as the default. GPU users can opt in via `$env:YT_COMPREHEND_WHISPER_DEVICE = "cuda"`.
-- **Metadata gap on partial-failure replay.** When yt-dlp captions partially succeed (writes `info.json`) and the Whisper step then crashes, `info.json` is consumed and a re-run yields a meta.json with only `schema_version` and `transcript_source`. Title/uploader/duration are missing on the recovery run. Documented as a v2.1 fix; pipeline still works because `select_keyframes` falls back to cue-derived duration.
-- **Deixis heuristic is English-only.** German trader content fell through to even-spacing fallback for most frames, but chart-keyword scoring still caught moments mentioning "Weekly-Chart", "Pie-Chart", "Levels". Multilingual deictic phrases would improve keyframe targeting on non-English content. Future enhancement.
+The v1/v2 design and plans are in `docs/superpowers/`.

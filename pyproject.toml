@@ -1,11 +1,12 @@
 [project]
-name = "yt-comprehend"
-version = "0.2.0"
-description = "YouTube comprehension skill for Claude Code"
+name = "video-comprehend"
+version = "0.3.0"
+description = "Video comprehension skill for Claude Code (YouTube, any yt-dlp source, local files)"
 requires-python = ">=3.10"
-dependencies = ["faster-whisper>=1.0.0"]
+dependencies = ["yt-dlp", "numpy", "pillow"]
 
 [project.optional-dependencies]
+asr = ["faster-whisper>=1.0.0"]
 dev = ["pytest>=7.0"]
 
 [tool.pytest.ini_options]
